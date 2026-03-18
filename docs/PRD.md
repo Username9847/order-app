@@ -141,3 +141,197 @@
 - 파생 지표
   - 주문당 평균 메뉴 수량
   - 옵션 선택 비율(예: 샷 추가 선택 비율)
+
+## 5. 백엔드 요구사항 (API & 데이터 모델)
+
+### 5.1 데이터 모델
+
+- **Menus**
+  - `id`: PK, UUID 또는 숫자
+  - `name`: 커피 이름 (예: 아메리카노(ICE))
+  - `description`: 설명
+  - `price`: 기본 가격(정수, 원 단위)
+  - `image_url`: 상품 이미지 경로/URL
+  - `stock_quantity`: 재고 수량(정수, 0 이상)
+  - `created_at`, `updated_at`
+
+- **Options**
+  - `id`: PK
+  - `menu_id`: FK → `Menus.id`
+  - `name`: 옵션 이름 (예: 샷 추가)
+  - `extra_price`: 옵션 추가 금액(정수, 원 단위)
+  - `created_at`, `updated_at`
+
+- **Orders**
+  - `id`: PK
+  - `created_at`: 주문 생성 시각
+  - `status`: 주문 상태(`RECEIVED`, `IN_PROGRESS`, `COMPLETED`)
+  - `total_amount`: 전체 주문 금액(정수, 원 단위)
+
+- **OrderItems**
+  - `id`: PK
+  - `order_id`: FK → `Orders.id`
+  - `menu_id`: FK → `Menus.id`
+  - `menu_name_snapshot`: 주문 시점의 메뉴명 스냅샷
+  - `unit_price`: 주문 시점의 단가(옵션 포함)
+  - `quantity`: 수량
+  - `line_total`: 합계 금액
+
+- **OrderItemOptions**
+  - `id`: PK
+  - `order_item_id`: FK → `OrderItems.id`
+  - `option_id`: FK → `Options.id`
+  - `option_name_snapshot`: 주문 시점의 옵션 이름
+  - `extra_price`: 주문 시점의 옵션 추가 금액
+
+### 5.2 사용자 흐름과 데이터 스키마 연동
+
+1. **메뉴 조회**
+   - 클라이언트에서 `GET /api/menus` 호출.
+   - 응답에는 `Menus` + 연결된 `Options` 정보 포함.
+   - 응답 데이터 중 `stock_quantity`는 관리자 화면의 재고 영역에서 사용.
+
+2. **장바구니 구성**
+   - 사용자가 앱 화면에서 커피/옵션을 선택하면, 프런트엔드에서 장바구니 상태만 갱신(서버 호출 없음).
+   - 장바구니 아이템 구조는 `menuId`, `menuName`, `optionIds[]`, `unitPrice`, `quantity`, `lineTotal` 등으로 구성.
+
+3. **주문 생성**
+   - 사용자가 `주문하기` 버튼 클릭 → `POST /api/orders` 호출.
+   - 요청 바디에는 주문 시간은 서버에서 기록하고, **주문 내용(메뉴, 수량, 옵션, 금액)** 을 전송.
+   - 서버는 다음을 수행:
+     - 요청 검증 및 재고 확인 (`Menus.stock_quantity`)
+     - `Orders`, `OrderItems`, `OrderItemOptions` 에 레코드 생성
+     - 주문 기본 상태를 `RECEIVED` 로 저장
+     - 사용한 수량만큼 `Menus.stock_quantity` 감소
+
+4. **주문 현황 표시**
+   - 관리자 화면에서 `GET /api/orders?status=RECEIVED,IN_PROGRESS` 를 호출.
+   - 각 주문에 대해:
+     - 주문 일시(`created_at`)
+     - 주문 내용 요약(메뉴, 수량, 옵션)
+     - 금액(`total_amount`)
+     - 상태(`RECEIVED` / `IN_PROGRESS` / `COMPLETED`)
+   - 프런트엔드는 이를 `주문 현황` 리스트로 렌더링하고, 상태별 카운트는 대시보드에서 사용.
+
+5. **주문 상태 변경**
+   - 관리자가 특정 주문의 상태를 변경할 때:
+     - `PATCH /api/orders/:orderId/status`
+     - 흐름: `RECEIVED` → `IN_PROGRESS` → `COMPLETED`
+   - 서버는 상태 전이 유효성 검증 후 `Orders.status` 를 업데이트.
+
+### 5.3 API 설계
+
+#### 5.3.1 메뉴 조회 API
+
+- **GET `/api/menus`**
+  - **설명**: `주문하기` 화면 진입 시 커피 메뉴 목록을 불러오기.
+  - **쿼리 파라미터**: 선택적으로 `includeOptions=true` 로 옵션 포함 여부 제어.
+  - **응답 예시**:
+    ```json
+    [
+      {
+        "id": "americano-ice",
+        "name": "아메리카노(ICE)",
+        "description": "간단한 설명...",
+        "price": 4000,
+        "imageUrl": "/images/americano-ice.png",
+        "stockQuantity": 8,
+        "options": [
+          { "id": "shot", "name": "샷 추가", "extraPrice": 500 },
+          { "id": "syrup", "name": "시럽 추가", "extraPrice": 0 }
+        ]
+      }
+    ]
+    ```
+
+#### 5.3.2 주문 생성 API
+
+- **POST `/api/orders`**
+  - **설명**: 사용자가 장바구니에서 `주문하기` 를 눌렀을 때 주문 생성.
+  - **요청 바디**:
+    ```json
+    {
+      "items": [
+        {
+          "menuId": "americano-ice",
+          "quantity": 2,
+          "optionIds": ["shot"]
+        },
+        {
+          "menuId": "latte",
+          "quantity": 1,
+          "optionIds": []
+        }
+      ]
+    }
+    ```
+  - **서버 처리**:
+    - 재고 확인 (각 `menuId` 에 대해 `stock_quantity >= quantity` 확인)
+    - 트랜잭션 내에서:
+      - `Orders` 생성 (`status = RECEIVED`)
+      - 각 장바구니 항목에 대해 `OrderItems`, `OrderItemOptions` 생성
+      - `Menus.stock_quantity` 감소
+  - **응답 예시**:
+    ```json
+    {
+      "orderId": "ord-20260309-0001",
+      "status": "RECEIVED",
+      "createdAt": "2026-03-09T01:21:00.000Z",
+      "totalAmount": 12500
+    }
+    ```
+
+#### 5.3.3 주문 상세 조회 API
+
+- **GET `/api/orders/:orderId`**
+  - **설명**: 특정 주문 상세 정보 조회(관리자/추후 고객용).
+  - **응답 예시**:
+    ```json
+    {
+      "id": "ord-20260309-0001",
+      "createdAt": "2026-03-09T01:21:00.000Z",
+      "status": "RECEIVED",
+      "totalAmount": 12500,
+      "items": [
+        {
+          "menuName": "아메리카노(ICE)",
+          "quantity": 1,
+          "unitPrice": 4500,
+          "lineTotal": 4500,
+          "options": ["샷 추가"]
+        }
+      ]
+    }
+    ```
+
+#### 5.3.4 주문 목록/현황 API
+
+- **GET `/api/orders`**
+  - **설명**: 관리자 화면 `주문 현황`에 사용할 주문 목록 조회.
+  - **쿼리 파라미터**:
+    - `status`: `RECEIVED`, `IN_PROGRESS`, `COMPLETED` 중 하나 또는 콤마 구분 여러 개.
+  - **응답**: 주문 목록(최신순).
+
+#### 5.3.5 주문 상태 변경 API
+
+- **PATCH `/api/orders/:orderId/status`**
+  - **설명**: 주문 상태를 `RECEIVED → IN_PROGRESS → COMPLETED` 순으로 변경.
+  - **요청 바디**:
+    ```json
+    { "status": "IN_PROGRESS" }
+    ```
+  - **서버 처리**:
+    - 현재 상태 확인 후 유효한 전이인지 검증.
+    - `Orders.status` 업데이트.
+
+#### 5.3.6 재고 수정 API
+
+- **PATCH `/api/menus/:menuId/stock`**
+  - **설명**: 관리자 화면에서 `+/-` 클릭 시 재고 조정.
+  - **요청 바디**:
+    ```json
+    { "delta": 1 }
+    ```
+  - **서버 처리**:
+    - 현재 재고에 `delta` 를 더한 값이 0 미만이면 0으로 고정.
+    - `stock_quantity` 업데이트 후 최신 값 반환.

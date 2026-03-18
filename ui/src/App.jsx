@@ -1,38 +1,19 @@
 import "./App.css";
 import React from "react";
 
-const MENUS = [
-  {
-    id: "americano-ice",
-    name: "아메리카노(ICE)",
-    basePrice: 4000,
-    description: "간단한 설명...",
-    options: [
-      { id: "shot", label: "샷 추가", extraPrice: 500 },
-      { id: "syrup", label: "시럽 추가", extraPrice: 0 },
-    ],
-  },
-  {
-    id: "americano-hot",
-    name: "아메리카노(HOT)",
-    basePrice: 4000,
-    description: "간단한 설명...",
-    options: [
-      { id: "shot", label: "샷 추가", extraPrice: 500 },
-      { id: "syrup", label: "시럽 추가", extraPrice: 0 },
-    ],
-  },
-  {
-    id: "latte",
-    name: "카페라떼",
-    basePrice: 5000,
-    description: "간단한 설명...",
-    options: [
-      { id: "shot", label: "샷 추가", extraPrice: 500 },
-      { id: "syrup", label: "시럽 추가", extraPrice: 0 },
-    ],
-  },
-];
+async function api(path, options) {
+  const res = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  const contentType = res.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) return await res.json();
+  return await res.text();
+}
 
 function formatKRW(amount) {
   return `${amount.toLocaleString("ko-KR")}원`;
@@ -54,10 +35,46 @@ function summarizeOptions(menu, selectedOptionIds) {
 
 function App() {
   const [activeTab, setActiveTab] = React.useState("order"); // 'order' | 'admin'
+  const [menus, setMenus] = React.useState([]);
   const [cartItems, setCartItems] = React.useState([]);
   const [isSubmittingOrder, setIsSubmittingOrder] = React.useState(false);
+  const [orders, setOrders] = React.useState([]);
+  const [toast, setToast] = React.useState(null);
+  const [error, setError] = React.useState(null);
+  const [isLoadingMenus, setIsLoadingMenus] = React.useState(false);
+  const [isLoadingOrders, setIsLoadingOrders] = React.useState(false);
 
   const cartTotal = cartItems.reduce((sum, item) => sum + item.lineTotal, 0);
+
+  async function refreshMenus() {
+    setIsLoadingMenus(true);
+    try {
+      const data = await api("/api/menus");
+      setMenus(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "메뉴를 불러오지 못했습니다.");
+    } finally {
+      setIsLoadingMenus(false);
+    }
+  }
+
+  async function refreshOrders() {
+    setIsLoadingOrders(true);
+    try {
+      const data = await api("/api/orders");
+      setOrders(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "주문을 불러오지 못했습니다.");
+    } finally {
+      setIsLoadingOrders(false);
+    }
+  }
+
+  React.useEffect(() => {
+    refreshMenus();
+    refreshOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function addToCart(menu, selectedOptionIds) {
     const selectedKey = optionsKey(selectedOptionIds);
@@ -65,7 +82,7 @@ function App() {
       const opt = menu.options.find((o) => o.id === id);
       return sum + (opt ? opt.extraPrice : 0);
     }, 0);
-    const unitPrice = menu.basePrice + optionsExtra;
+    const unitPrice = menu.price + optionsExtra;
 
     setCartItems((prev) => {
       const idx = prev.findIndex(
@@ -102,11 +119,82 @@ function App() {
   async function submitOrder() {
     if (cartItems.length === 0 || isSubmittingOrder) return;
     setIsSubmittingOrder(true);
-    await new Promise((r) => setTimeout(r, 600));
-    setCartItems([]);
-    setIsSubmittingOrder(false);
-    window.alert("주문이 접수되었습니다.");
+    try {
+      await api("/api/orders", {
+        method: "POST",
+        body: JSON.stringify({
+          items: cartItems.map((ci) => ({
+            menuId: ci.menuId,
+            quantity: ci.quantity,
+            optionIds: ci.selectedOptions,
+          })),
+        }),
+      });
+      setCartItems([]);
+      await refreshMenus();
+      await refreshOrders();
+      setActiveTab("admin");
+      setToast("새 주문이 접수되었습니다.");
+      window.setTimeout(() => setToast(null), 2500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "주문 처리에 실패했습니다.");
+    } finally {
+      setIsSubmittingOrder(false);
+    }
   }
+
+  async function adjustStock(id, delta) {
+    try {
+      await api(`/api/menus/${id}/stock`, {
+        method: "PATCH",
+        body: JSON.stringify({ delta }),
+      });
+      await refreshMenus();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "재고 수정에 실패했습니다.");
+    }
+  }
+
+  function stockStatus(quantity) {
+    if (quantity === 0) return "품절";
+    if (quantity < 5) return "주의";
+    return "정상";
+  }
+
+  function stockStatusClass(quantity) {
+    if (quantity === 0) return "badge danger";
+    if (quantity < 5) return "badge warning";
+    return "badge success";
+  }
+
+  async function advanceOrderStatus(order) {
+    const next =
+      order.status === "RECEIVED"
+        ? "IN_PROGRESS"
+        : order.status === "IN_PROGRESS"
+          ? "COMPLETED"
+          : null;
+    if (!next) return;
+    try {
+      await api(`/api/orders/${order.id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: next }),
+      });
+      await refreshOrders();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "주문 상태 변경에 실패했습니다.");
+    }
+  }
+
+  const dashboardCounts = React.useMemo(
+    () => ({
+      totalMenus: menus.length,
+      totalStock: menus.reduce((sum, m) => sum + (m.stockQuantity ?? 0), 0),
+      receivedOrders: orders.filter((o) => o.status === "RECEIVED").length,
+      inProgressOrders: orders.filter((o) => o.status === "IN_PROGRESS").length,
+    }),
+    [menus, orders],
+  );
 
   return (
     <div className="page">
@@ -139,19 +227,144 @@ function App() {
           </nav>
         </header>
 
+        {toast && (
+          <div className="toast" role="status" aria-live="polite">
+            {toast}
+          </div>
+        )}
+
+        {error && (
+          <div className="toast errorToast" role="alert">
+            {error}
+          </div>
+        )}
+
         {activeTab === "admin" ? (
           <main className="content" role="main">
-            <div className="panel">
-              <h2 className="panelTitle">관리자</h2>
-              <p className="muted">관리자 화면은 다음 단계에서 구현합니다.</p>
-            </div>
+            <section className="adminSection">
+              <h2 className="sectionTitle">관리자 대시보드</h2>
+              <div className="dashboardGrid">
+                <div className="dashboardCard">
+                  <div className="dashLabel">메뉴 수</div>
+                  <div className="dashValue">{dashboardCounts.totalMenus}</div>
+                </div>
+                <div className="dashboardCard">
+                  <div className="dashLabel">전체 재고 수량</div>
+                  <div className="dashValue">{dashboardCounts.totalStock}</div>
+                </div>
+                <div className="dashboardCard">
+                  <div className="dashLabel">주문 접수</div>
+                  <div className="dashValue">
+                    {dashboardCounts.receivedOrders}
+                  </div>
+                </div>
+                <div className="dashboardCard">
+                  <div className="dashLabel">제조 중</div>
+                  <div className="dashValue">
+                    {dashboardCounts.inProgressOrders}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="adminSection">
+              <h2 className="sectionTitle">재고 현황</h2>
+              <div className="stockTable">
+                <div className="stockHeader">
+                  <span>메뉴</span>
+                  <span>재고</span>
+                  <span>상태</span>
+                  <span>조정</span>
+                </div>
+                {menus.slice(0, 3).map((m) => (
+                  <div key={m.id} className="stockRow">
+                    <span className="stockName">{m.name}</span>
+                    <span className="stockQty">{m.stockQuantity} 개</span>
+                    <span className={stockStatusClass(m.stockQuantity)}>
+                      {stockStatus(m.stockQuantity)}
+                    </span>
+                    <span className="stockActions">
+                      <button
+                        type="button"
+                        className="iconButton"
+                        onClick={() => adjustStock(m.id, -1)}
+                      >
+                        -
+                      </button>
+                      <button
+                        type="button"
+                        className="iconButton"
+                        onClick={() => adjustStock(m.id, 1)}
+                      >
+                        +
+                      </button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="adminSection">
+              <h2 className="sectionTitle">주문 현황</h2>
+              {isLoadingOrders ? (
+                <p className="muted">불러오는 중...</p>
+              ) : orders.length === 0 ? (
+                <p className="muted">아직 접수된 주문이 없습니다.</p>
+              ) : (
+                <div className="ordersTable">
+                  <div className="ordersHeader">
+                    <span>접수 일시</span>
+                    <span>주문 내용</span>
+                    <span>금액</span>
+                    <span>상태</span>
+                    <span>액션</span>
+                  </div>
+                  {orders.map((order) => (
+                    <div key={order.id} className="ordersRow">
+                      <span className="orderDate">
+                        {new Date(order.createdAt).toLocaleString("ko-KR")}
+                      </span>
+                      <span className="orderItems">{order.itemsSummary}</span>
+                      <span className="orderAmount">
+                        {formatKRW(order.totalAmount)}
+                      </span>
+                      <span className="orderStatus">
+                        {order.status === "RECEIVED"
+                          ? "주문 접수"
+                          : order.status === "IN_PROGRESS"
+                            ? "제조 중"
+                            : "완료"}
+                      </span>
+                      <span className="orderActions">
+                        <button
+                          type="button"
+                          className="smallPrimaryButton"
+                          disabled={order.status === "COMPLETED"}
+                          onClick={() => advanceOrderStatus(order)}
+                        >
+                          {order.status === "RECEIVED"
+                            ? "제조 시작"
+                            : order.status === "IN_PROGRESS"
+                              ? "완료 처리"
+                              : "완료"}
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
           </main>
         ) : (
           <main className="content" role="main">
             <section className="menuGrid" aria-label="메뉴 목록">
-              {MENUS.map((menu) => (
-                <MenuCard key={menu.id} menu={menu} onAdd={addToCart} />
-              ))}
+              {isLoadingMenus ? (
+                <p className="muted">불러오는 중...</p>
+              ) : (
+                menus.map((menu) => (
+                  <MenuCard key={menu.id} menu={menu} onAdd={addToCart} />
+                ))
+              )}
             </section>
 
             <section className="cartPanel" aria-label="장바구니">
@@ -232,10 +445,22 @@ function MenuCard({ menu, onAdd }) {
 
   return (
     <article className="menuCard">
-      <div className="thumb" aria-hidden="true" />
+      {(() => {
+        const name = String(menu.name ?? "");
+        const variant = name.includes("ICE")
+          ? "ice"
+          : name.includes("HOT")
+            ? "hot"
+            : name.includes("라떼")
+              ? "latte"
+              : "default";
+        return (
+          <div className={`thumb thumb-${variant}`} aria-hidden="true" />
+        );
+      })()}
       <div className="menuMeta">
         <div className="menuName">{menu.name}</div>
-        <div className="menuPrice">{formatKRW(menu.basePrice)}</div>
+        <div className="menuPrice">{formatKRW(menu.price)}</div>
         <div className="menuDesc">{menu.description}</div>
       </div>
 
@@ -248,7 +473,7 @@ function MenuCard({ menu, onAdd }) {
               onChange={() => toggleOption(opt.id)}
             />
             <span>
-              {opt.label} ({opt.extraPrice === 0 ? "+0원" : `+${opt.extraPrice}원`})
+              {opt.name} ({opt.extraPrice === 0 ? "+0원" : `+${opt.extraPrice}원`})
             </span>
           </label>
         ))}
