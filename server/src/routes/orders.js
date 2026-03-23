@@ -12,6 +12,14 @@ function isValidNextStatus(current, next) {
   return (allowed[current] ?? []).includes(next);
 }
 
+async function rollbackQuiet(client) {
+  try {
+    await client.query("rollback");
+  } catch {
+    // ignore (already rolled back or connection issue)
+  }
+}
+
 // POST /api/orders
 ordersRouter.post("/", async (req, res) => {
   const items = req.body?.items;
@@ -28,6 +36,7 @@ ordersRouter.post("/", async (req, res) => {
       (n) => Number.isFinite(n) && n > 0,
     );
     if (menuIds.length === 0) {
+      await rollbackQuiet(client);
       return res.status(400).json({ message: "Invalid menuId(s)" });
     }
 
@@ -44,6 +53,7 @@ ordersRouter.post("/", async (req, res) => {
       menusRes.rows.map((m) => [Number(m.id), { ...m, id: Number(m.id) }]),
     );
     if (menusById.size !== menuIds.length) {
+      await rollbackQuiet(client);
       return res.status(400).json({ message: "Unknown menuId exists" });
     }
 
@@ -74,6 +84,7 @@ ordersRouter.post("/", async (req, res) => {
         });
       }
       if (optionsById.size !== optionIds.length) {
+        await rollbackQuiet(client);
         return res.status(400).json({ message: "Unknown optionId exists" });
       }
     }
@@ -89,14 +100,17 @@ ordersRouter.post("/", async (req, res) => {
         : [];
 
       if (!Number.isFinite(menuId) || menuId <= 0) {
+        await rollbackQuiet(client);
         return res.status(400).json({ message: "Invalid menuId" });
       }
       if (!Number.isFinite(quantity) || quantity <= 0) {
+        await rollbackQuiet(client);
         return res.status(400).json({ message: "Invalid quantity" });
       }
 
       const menu = menusById.get(menuId);
       if (menu.stock_quantity < quantity) {
+        await rollbackQuiet(client);
         return res.status(409).json({
           message: "Insufficient stock",
           menuId,
@@ -110,6 +124,7 @@ ordersRouter.post("/", async (req, res) => {
       for (const oid of optIds) {
         const o = optionsById.get(oid);
         if (!o || o.menu_id !== menuId) {
+          await rollbackQuiet(client);
           return res.status(400).json({ message: "Option does not belong to menu", menuId, optionId: oid });
         }
         extra += o.extra_price;
