@@ -1,11 +1,35 @@
 import "./App.css";
 import React from "react";
 
+function getApiBase() {
+  const raw = import.meta.env.VITE_API_URL;
+  if (typeof raw === "string" && raw.trim()) {
+    return raw.replace(/\/$/, "");
+  }
+  return "";
+}
+
 async function api(path, options) {
-  const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  const base = getApiBase();
+  const url = path.startsWith("http") ? path : `${base}${path}`;
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: { "Content-Type": "application/json" },
+      ...options,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      /failed to fetch|networkerror|load failed|연결|aborted/i.test(msg) ||
+      err instanceof TypeError
+    ) {
+      throw new Error(
+        "백엔드에 연결할 수 없습니다. server 폴더에서 npm run dev 를 실행했는지, 포트(기본 3000)가 맞는지 확인하세요.",
+      );
+    }
+    throw err;
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(text || `HTTP ${res.status}`);
@@ -29,7 +53,7 @@ function summarizeOptions(menu, selectedOptionIds) {
   const labels = [...selectedOptionIds]
     .map((id) => byId.get(id))
     .filter(Boolean)
-    .map((o) => o.label);
+    .map((o) => o.name);
   return labels.join(", ");
 }
 
@@ -70,9 +94,31 @@ function App() {
     }
   }
 
+  async function refreshMenusAndOrders() {
+    setIsLoadingMenus(true);
+    setIsLoadingOrders(true);
+    try {
+      const [menusData, ordersData] = await Promise.all([
+        api("/api/menus"),
+        api("/api/orders"),
+      ]);
+      setMenus(menusData);
+      setOrders(ordersData);
+      setError(null);
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "서버에 연결할 수 없습니다. 백엔드가 실행 중인지 확인하세요.",
+      );
+    } finally {
+      setIsLoadingMenus(false);
+      setIsLoadingOrders(false);
+    }
+  }
+
   React.useEffect(() => {
-    refreshMenus();
-    refreshOrders();
+    refreshMenusAndOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -116,6 +162,17 @@ function App() {
     });
   }
 
+  function setCartQuantity(cartItemId, nextQuantity) {
+    setCartItems((prev) => {
+      if (nextQuantity <= 0) return prev.filter((x) => x.id !== cartItemId);
+      return prev.map((x) =>
+        x.id === cartItemId
+          ? { ...x, quantity: nextQuantity, lineTotal: x.unitPrice * nextQuantity }
+          : x,
+      );
+    });
+  }
+
   async function submitOrder() {
     if (cartItems.length === 0 || isSubmittingOrder) return;
     setIsSubmittingOrder(true);
@@ -131,8 +188,7 @@ function App() {
         }),
       });
       setCartItems([]);
-      await refreshMenus();
-      await refreshOrders();
+      await refreshMenusAndOrders();
       setActiveTab("admin");
       setToast("새 주문이 접수되었습니다.");
       window.setTimeout(() => setToast(null), 2500);
@@ -150,6 +206,7 @@ function App() {
         body: JSON.stringify({ delta }),
       });
       await refreshMenus();
+      setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "재고 수정에 실패했습니다.");
     }
@@ -181,6 +238,7 @@ function App() {
         body: JSON.stringify({ status: next }),
       });
       await refreshOrders();
+      setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "주문 상태 변경에 실패했습니다.");
     }
@@ -235,7 +293,14 @@ function App() {
 
         {error && (
           <div className="toast errorToast" role="alert">
-            {error}
+            <span className="errorText">{error}</span>
+            <button
+              type="button"
+              className="retryButton"
+              onClick={() => refreshMenusAndOrders()}
+            >
+              다시 시도
+            </button>
           </div>
         )}
 
@@ -276,31 +341,42 @@ function App() {
                   <span>상태</span>
                   <span>조정</span>
                 </div>
-                {menus.slice(0, 3).map((m) => (
-                  <div key={m.id} className="stockRow">
-                    <span className="stockName">{m.name}</span>
-                    <span className="stockQty">{m.stockQuantity} 개</span>
-                    <span className={stockStatusClass(m.stockQuantity)}>
-                      {stockStatus(m.stockQuantity)}
-                    </span>
-                    <span className="stockActions">
-                      <button
-                        type="button"
-                        className="iconButton"
-                        onClick={() => adjustStock(m.id, -1)}
-                      >
-                        -
-                      </button>
-                      <button
-                        type="button"
-                        className="iconButton"
-                        onClick={() => adjustStock(m.id, 1)}
-                      >
-                        +
-                      </button>
-                    </span>
-                  </div>
-                ))}
+                {isLoadingMenus ? (
+                  <p className="muted">불러오는 중...</p>
+                ) : menus.length === 0 ? (
+                  <p className="muted">메뉴 데이터가 없습니다.</p>
+                ) : (
+                  menus.slice(0, 3).map((m) => {
+                    const qty = Number(m.stockQuantity ?? 0);
+                    return (
+                      <div key={m.id} className="stockRow">
+                        <span className="stockName">{m.name}</span>
+                        <span className="stockQty">{qty} 개</span>
+                        <span className={stockStatusClass(qty)}>
+                          {stockStatus(qty)}
+                        </span>
+                        <span className="stockActions">
+                          <button
+                            type="button"
+                            className="iconButton"
+                            onClick={() => adjustStock(m.id, -1)}
+                            aria-label={`${m.name} 재고 감소`}
+                          >
+                            -
+                          </button>
+                          <button
+                            type="button"
+                            className="iconButton"
+                            onClick={() => adjustStock(m.id, 1)}
+                            aria-label={`${m.name} 재고 증가`}
+                          >
+                            +
+                          </button>
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </section>
 
@@ -377,7 +453,7 @@ function App() {
                   <div className="cartLeft">
                     <div className="cartLines" role="list">
                       {cartItems.map((item) => {
-                        const menu = MENUS.find((m) => m.id === item.menuId);
+                        const menu = menus.find((m) => m.id === item.menuId);
                         const optionsText = menu
                           ? summarizeOptions(menu, item.selectedOptions)
                           : "";
@@ -388,7 +464,25 @@ function App() {
                           <div key={item.id} className="cartLine" role="listitem">
                             <div className="cartLineLeft">
                               <span className="cartItemName">{nameLine}</span>
-                              <span className="cartItemQty">X {item.quantity}</span>
+                              <span className="qtyControls" aria-label="수량 조절">
+                                <button
+                                  type="button"
+                                  className="qtyBtn"
+                                  onClick={() => setCartQuantity(item.id, item.quantity - 1)}
+                                  aria-label="수량 감소"
+                                >
+                                  -
+                                </button>
+                                <span className="qtyValue">{item.quantity}</span>
+                                <button
+                                  type="button"
+                                  className="qtyBtn"
+                                  onClick={() => setCartQuantity(item.id, item.quantity + 1)}
+                                  aria-label="수량 증가"
+                                >
+                                  +
+                                </button>
+                              </span>
                             </div>
                             <div className="cartLineRight">
                               {formatKRW(item.lineTotal)}

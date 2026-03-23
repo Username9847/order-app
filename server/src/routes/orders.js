@@ -40,7 +40,9 @@ ordersRouter.post("/", async (req, res) => {
       `,
       [menuIds],
     );
-    const menusById = new Map(menusRes.rows.map((m) => [m.id, m]));
+    const menusById = new Map(
+      menusRes.rows.map((m) => [Number(m.id), { ...m, id: Number(m.id) }]),
+    );
     if (menusById.size !== menuIds.length) {
       return res.status(400).json({ message: "Unknown menuId exists" });
     }
@@ -64,7 +66,13 @@ ordersRouter.post("/", async (req, res) => {
         `,
         [optionIds],
       );
-      for (const o of optsRes.rows) optionsById.set(o.id, o);
+      for (const o of optsRes.rows) {
+        optionsById.set(Number(o.id), {
+          ...o,
+          id: Number(o.id),
+          menu_id: Number(o.menu_id),
+        });
+      }
       if (optionsById.size !== optionIds.length) {
         return res.status(400).json({ message: "Unknown optionId exists" });
       }

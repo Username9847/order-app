@@ -51,6 +51,31 @@
 .errorToast {
   top: 104px;
   background: rgba(185, 28, 28, 0.98);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(520px, calc(100vw - 32px));
+}
+
+.errorText {
+  flex: 1;
+  min-width: 0;
+}
+
+.retryButton {
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  background: transparent;
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.retryButton:hover {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .brand {
@@ -271,6 +296,9 @@
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .smallPrimaryButton:disabled {
@@ -394,16 +422,22 @@
 
 .options {
   display: grid;
-  gap: 8px;
-  padding-top: 6px;
+  gap: 4px;
+  padding-top: 4px;
 }
 
 .optionRow {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
-  font-size: 13px;
+  font-size: 12px;
+  line-height: 1.2;
   color: var(--gray-600);
+}
+
+.optionRow input {
+  transform: scale(0.9);
+  transform-origin: left center;
 }
 
 .secondaryButton {
@@ -474,8 +508,8 @@
 
 .cartLineLeft {
   display: flex;
-  gap: 10px;
-  align-items: baseline;
+  gap: 12px;
+  align-items: center;
   min-width: 0;
 }
 
@@ -488,8 +522,33 @@
   max-width: 520px;
 }
 
-.cartItemQty {
-  font-size: 14px;
+.qtyControls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.qtyBtn {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--gray-200);
+  background: white;
+  color: var(--gray-900);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.qtyBtn:hover {
+  border-color: var(--blue-600);
+  color: var(--blue-700);
+}
+
+.qtyValue {
+  min-width: 16px;
+  text-align: center;
+  font-size: 13px;
   color: var(--gray-600);
   font-weight: 700;
 }
