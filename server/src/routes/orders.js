@@ -234,10 +234,10 @@ ordersRouter.get("/", async (req, res) => {
 
   return res.json(
     rows.map((r) => ({
-      id: r.id,
+      id: Number(r.id),
       createdAt: r.created_at,
       status: r.status,
-      totalAmount: r.total_amount,
+      totalAmount: Number(r.total_amount),
       itemsSummary: r.items_summary,
     })),
   );
@@ -294,11 +294,16 @@ ordersRouter.get("/:orderId", async (req, res) => {
 
   const order = orderRes.rows[0];
   return res.json({
-    id: order.id,
+    id: Number(order.id),
     createdAt: order.created_at,
     status: order.status,
-    totalAmount: order.total_amount,
-    items: [...itemsMap.values()],
+    totalAmount: Number(order.total_amount),
+    items: [...itemsMap.values()].map((it) => ({
+      ...it,
+      quantity: Number(it.quantity),
+      unitPrice: Number(it.unitPrice),
+      lineTotal: Number(it.lineTotal),
+    })),
   });
 });
 
@@ -329,10 +334,10 @@ ordersRouter.patch("/:orderId/status", async (req, res) => {
 
   const o = updRes.rows[0];
   return res.json({
-    id: o.id,
+    id: Number(o.id),
     createdAt: o.created_at,
     status: o.status,
-    totalAmount: o.total_amount,
+    totalAmount: Number(o.total_amount),
   });
 });
 

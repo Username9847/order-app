@@ -1,0 +1,28 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# 대시보드에서 "Blueprint"로 연결하거나, 기존 서비스는 수동 생성해도 됩니다.
+version: "1"
+
+services:
+  - type: web
+    name: order-app-backend
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20.18.0"
+      - key: DATABASE_URL
+        sync: false
+
+staticSites:
+  - name: order-app-ui
+    rootDir: ui
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        sync: false

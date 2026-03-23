@@ -10,12 +10,13 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Basic request log (for debugging during development)
-app.use((req, _res, next) => {
-  // eslint-disable-next-line no-console
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-  next();
-});
+if (process.env.NODE_ENV !== "production") {
+  app.use((req, _res, next) => {
+    // eslint-disable-next-line no-console
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    next();
+  });
+}
 
 app.get("/", (_req, res) => {
   res.status(200).type("text/html; charset=utf-8").send(`<!doctype html>
@@ -84,6 +85,3 @@ app.listen(port, () => {
   // eslint-disable-next-line no-console
   console.log(`Server listening on http://localhost:${port}`);
 });
-
- 
-  

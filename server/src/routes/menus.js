@@ -25,22 +25,23 @@ menusRouter.get("/", async (_req, res) => {
 
   const map = new Map();
   for (const r of rows) {
-    if (!map.has(r.menu_id)) {
-      map.set(r.menu_id, {
-        id: r.menu_id,
+    const mid = Number(r.menu_id);
+    if (!map.has(mid)) {
+      map.set(mid, {
+        id: mid,
         name: r.menu_name,
         description: r.menu_description ?? "",
-        price: r.menu_price,
+        price: Number(r.menu_price),
         imageUrl: r.menu_image_url,
-        stockQuantity: r.menu_stock_quantity,
+        stockQuantity: Number(r.menu_stock_quantity),
         options: [],
       });
     }
     if (r.option_id) {
-      map.get(r.menu_id).options.push({
-        id: r.option_id,
+      map.get(mid).options.push({
+        id: Number(r.option_id),
         name: r.option_name,
-        extraPrice: r.option_extra_price,
+        extraPrice: Number(r.option_extra_price),
       });
     }
   }
@@ -75,6 +76,10 @@ menusRouter.patch("/:menuId/stock", async (req, res) => {
     return res.status(404).json({ message: "Menu not found" });
   }
 
-  return res.json(rows[0]);
+  const row = rows[0];
+  return res.json({
+    id: Number(row.id),
+    stockQuantity: Number(row.stockQuantity),
+  });
 });
 

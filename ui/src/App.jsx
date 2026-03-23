@@ -24,9 +24,10 @@ async function api(path, options) {
       /failed to fetch|networkerror|load failed|연결|aborted/i.test(msg) ||
       err instanceof TypeError
     ) {
-      throw new Error(
-        "백엔드에 연결할 수 없습니다. server 폴더에서 npm run dev 를 실행했는지, 포트(기본 3000)가 맞는지 확인하세요.",
-      );
+      const hint = import.meta.env.PROD
+        ? "Render 등 배포 환경에서는 Static Site에 VITE_API_URL(백엔드 https 주소, 끝 / 없음)이 설정돼 있는지 확인하세요."
+        : "server 폴더에서 npm run dev 를 실행했는지, ui/.env.development 의 VITE_API_URL·포트(기본 3000)가 맞는지 확인하세요.";
+      throw new Error(`백엔드에 연결할 수 없습니다. ${hint}`);
     }
     throw err;
   }
