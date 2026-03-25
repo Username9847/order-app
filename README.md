@@ -60,7 +60,8 @@ npm run dev
 - **Build:** `npm install && npm run build`
 - **Publish directory:** `dist`
 - **환경 변수 (빌드 시 필요):** `VITE_API_URL` = 백엔드 공개 URL  
-  예: `https://your-backend.onrender.com` (**끝에 `/` 없음**)
+  예: `https://your-backend.onrender.com` (**끝에 `/` 없음**)  
+  저장소에 `ui/.env.production` 이 있으면 Render 대시보드 없이도 빌드에 포함됩니다.
 
 프런트 URL로 접속하면 로컬 `5173`과 같은 화면이 보이고, API는 위 백엔드로 호출됩니다.
 

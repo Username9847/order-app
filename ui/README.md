@@ -26,10 +26,10 @@ npm.cmd run dev
 
 ## Render에 프런트만 올릴 때 (Static Site)
 
-배포된 API 주소를 빌드 시점에 넣어야 합니다. 예:
+프로덕션 빌드에는 **`VITE_API_URL`** 이 꼭 들어가야 합니다. 이 값이 비어 있으면 요청이 `프런트주소/api/...`로 가서 **404 / Not Found** 가 납니다.
 
-- **Environment:** `VITE_API_URL` = `https://order-app-backend-1gz1.onrender.com` (끝에 `/` 없음)
+1. **권장:** 저장소의 `ui/.env.production` 에 백엔드 `https://...` 를 넣어 두고 푸시한 뒤 재배포합니다.
+2. **또는** Render 대시보드 → Static Site → **Environment** 에 `VITE_API_URL` = `https://백엔드.onrender.com` (끝 `/` 없음) 을 넣고 **다시 빌드**합니다.
+
 - **Build:** `npm install && npm run build`
 - **Publish directory:** `dist`
-
-브라우저에서 API는 `https://order-app-backend-1gz1.onrender.com/api/...` 형태로 호출됩니다.
